@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 llmx = Static.load_api()
+
 if llmx is None:
     raise ValueError("Failed to load API. Please check your API key and connection.")
 
@@ -20,17 +21,16 @@ class SetTool:
     def news_finder_tool(question):
         return Tools().news_finder(news_key=os.getenv("NEWS_API_KEY"), query=question)
 
-
 class SetAgent:
-    masterH = Agents().master_historian_agent(llm=llmx, tools=[SetTool.search_tool()])
+    masterH = Agents(llm=llmx, tools=[SetTool.search_tool()]).master_historian_agent()
     
     @staticmethod
     def reporterH(question):
-        return Agents().reporter_historian_agent(llm=llmx, tools=[SetTool.news_finder_tool(question)])
+        return Agents(llm=llmx, tools=[SetTool.news_finder_tool(question)]).reporter_historian_agent()
     
-    questionV = Validator().question_validator_agent(llm=llmx, tools=[SetTool.search_tool()])
-    locationV = Validator().location_validator_agent(llm=llmx, tools=[SetTool.search_tool()])
-    languageV = Validator().language_validator_agent(llm=llmx, tools=[SetTool.search_tool()])
+    questionV = Validator(llm=llmx, tools=[SetTool.search_tool()]).question_validator_agent()
+    locationV = Validator(llm=llmx, tools=[SetTool.search_tool()]).location_validator_agent()
+    languageV = Validator(llm=llmx, tools=[SetTool.search_tool()]).language_validator_agent()
 
 class Crews:
     def __init__(self, question, location, language):
@@ -41,16 +41,14 @@ class Crews:
     def main_crew(self):
         if any(agent is None for agent in [SetAgent.masterH, SetAgent.reporterH(self.iquestion)]):
             raise ValueError("One or more required agents are not initialized.")
-        
-        reporter_agent = SetAgent.reporterH(self.iquestion)
-        
+                
         return Crew(
             agents=[
-                SetAgent.masterH, reporter_agent
+                SetAgent.masterH, SetAgent.reporterH(self.iquestion)
             ],
             tasks=[
                 Tasks().historical_task(question=self.iquestion, location=self.ilocation, language=self.ilanguage, agent=SetAgent.masterH),
-                Tasks().news_task(question=self.iquestion, location=self.ilocation, language=self.ilanguage, agent=reporter_agent),  # Perbaikan: gunakan reporter_agent
+                Tasks().news_task(question=self.iquestion, location=self.ilocation, language=self.ilanguage, agent=SetAgent.reporterH(self.iquestion)),
                 Tasks().summarize(question=self.iquestion, location=self.ilocation, language=self.ilanguage, agent=SetAgent.masterH)
             ],
             process=Process.sequential,
