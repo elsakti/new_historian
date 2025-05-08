@@ -1,10 +1,10 @@
 import os
 from crewai import Crew, Process
 from gaeni_toolkit.agents import Agents, Validator
-from gaeni_toolkit.tools import Tools
 from gaeni_toolkit.tasks import Tasks, TaskValidator 
 from static import Static
 from dotenv import load_dotenv
+from crewai_tools import SerperDevTool
 load_dotenv()
 
 llmx = Static.load_api()
@@ -12,25 +12,16 @@ llmx = Static.load_api()
 if llmx is None:
     raise ValueError("Failed to load API. Please check your API key and connection.")
 
-class SetTool:
-    @staticmethod
-    def search_tool():
-        return Tools().search_tool(serper_key=os.getenv("SERPER_API_KEY"))
-    
-    @staticmethod
-    def news_finder_tool(question):
-        return Tools().news_finder(news_key=os.getenv("NEWS_API_KEY"), query=question)
-
+search_tool = SerperDevTool(
+    api_key=os.getenv("SERPER_API_KEY"),
+    search_engine_type="google",
+    max_results=2
+)
 class SetAgent:
-    masterH = Agents(llm=llmx, tools=[SetTool.search_tool()]).master_historian_agent()
-    
-    @staticmethod
-    def reporterH(question):
-        return Agents(llm=llmx, tools=[SetTool.news_finder_tool(question)]).reporter_historian_agent()
-    
-    questionV = Validator(llm=llmx, tools=[SetTool.search_tool()]).question_validator_agent()
-    locationV = Validator(llm=llmx, tools=[SetTool.search_tool()]).location_validator_agent()
-    languageV = Validator(llm=llmx, tools=[SetTool.search_tool()]).language_validator_agent()
+    masterH = Agents(llm=llmx, tools=[search_tool]).master_historian_agent()
+    questionV = Validator(llm=llmx, tools=[search_tool]).question_validator_agent()
+    locationV = Validator(llm=llmx, tools=[search_tool]).location_validator_agent()
+    languageV = Validator(llm=llmx, tools=[search_tool]).language_validator_agent()
 
 class Crews:
     def __init__(self, question, location, language):
@@ -39,16 +30,12 @@ class Crews:
         self.ilanguage = language
         
     def main_crew(self):
-        if any(agent is None for agent in [SetAgent.masterH, SetAgent.reporterH(self.iquestion)]):
-            raise ValueError("One or more required agents are not initialized.")
-                
         return Crew(
             agents=[
-                SetAgent.masterH, SetAgent.reporterH(self.iquestion)
+                SetAgent.masterH,
             ],
             tasks=[
                 Tasks().historical_task(question=self.iquestion, location=self.ilocation, language=self.ilanguage, agent=SetAgent.masterH),
-                Tasks().news_task(question=self.iquestion, location=self.ilocation, language=self.ilanguage, agent=SetAgent.reporterH(self.iquestion)),
                 Tasks().summarize(question=self.iquestion, location=self.ilocation, language=self.ilanguage, agent=SetAgent.masterH)
             ],
             process=Process.sequential,
@@ -56,8 +43,6 @@ class Crews:
         )
         
     def validate_crew(self):
-        if any(agent is None for agent in [SetAgent.questionV, SetAgent.locationV, SetAgent.languageV]):
-            raise ValueError("One or more required agents are not initialized.")
         return Crew(
             agents=[
                 SetAgent.questionV, SetAgent.locationV, SetAgent.languageV    
@@ -68,5 +53,6 @@ class Crews:
                 TaskValidator().language_validate(self.ilanguage, agent=SetAgent.languageV)
             ],
             process=Process.sequential,
-            manager_llm=llmx
+            manager_llm=llmx,
+            verbose=True
         )
